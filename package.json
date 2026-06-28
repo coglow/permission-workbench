@@ -1,0 +1,39 @@
+{
+  "name": "permission-workbench",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.22.0",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n api,web \"pnpm run dev:api\" \"pnpm run dev:web\"",
+    "dev:api": "node server/src/index.ts",
+    "dev:web": "vite --host 127.0.0.1",
+    "db:init": "node server/src/db/init.ts",
+    "build": "tsc -p tsconfig.app.json && tsc -p tsconfig.server.json && vite build",
+    "format": "prettier --write \"server/**/*.ts\" \"web/**/*.{ts,tsx,css,html}\" \"*.json\" \"*.yaml\" \"vite.config.ts\"",
+    "format:check": "prettier --check \"server/**/*.ts\" \"web/**/*.{ts,tsx,css,html}\" \"*.json\" \"*.yaml\" \"vite.config.ts\""
+  },
+  "dependencies": {
+    "antd": "^6.6.5",
+    "better-sqlite3": "^12.4.1",
+    "cookie-parser": "^1.4.7",
+    "express": "^5.1.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/cookie-parser": "^1.4.10",
+    "@types/express": "^5.0.3",
+    "@types/node": "^24.3.0",
+    "@types/react": "^19.1.12",
+    "@types/react-dom": "^19.1.9",
+    "@vitejs/plugin-react": "^5.0.2",
+    "concurrently": "^9.2.1",
+    "prettier": "^3.9.9",
+    "typescript": "~5.9.2",
+    "vite": "^7.1.5"
+  }
+}

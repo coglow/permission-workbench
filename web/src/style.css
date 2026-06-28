@@ -1,0 +1,33 @@
+:root {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #f4f6f9;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+}
+
+.page {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 24px;
+}
+
+.status-card {
+  width: min(100%, 520px);
+}
+
+.card-content {
+  width: 100%;
+}
+
+.account-list {
+  margin-top: 12px;
+}
+
+.permission-list {
+  padding-left: 12px;
+}
