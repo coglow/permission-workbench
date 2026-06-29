@@ -4,6 +4,8 @@ import { fetchIdentity } from './api';
 import { RequireAuth } from './identity';
 import { ProtectedLayout } from './layout';
 import { LoginPage } from './pages/LoginPage';
+import { ProjectDetailPage } from './pages/ProjectDetailPage';
+import { ProjectEditPage } from './pages/ProjectEditPage';
 import { ProjectsPage } from './pages/ProjectsPage';
 import { ForbiddenPage, NotFoundPage, RootErrorPage } from './pages/StatusPages';
 
@@ -39,7 +41,7 @@ export const router = createBrowserRouter([
     errorElement: <RootErrorPage />,
     children: [
       // 根路径没有独立页面，按当前会话落到项目列表（未登录时会被守卫转到登录页）。
-      { index: true, element: <Navigate to="/projects" replace /> },
+      { index: true, element: <Navigate to="/projects/list" replace /> },
 
       // 公共路由：登录页在登录前后都可访问。
       { path: 'login', element: <LoginPage /> },
@@ -52,9 +54,10 @@ export const router = createBrowserRouter([
           </RequireAuth>
         ),
         children: [
-          { path: 'projects', element: <ProjectsPage /> },
+          { path: 'projects/list', element: <ProjectsPage /> },
+          { path: 'projects/records/:id', element: <ProjectDetailPage /> },
+          { path: 'projects/records/:id/edit', element: <ProjectEditPage /> },
           { path: '403', element: <ForbiddenPage /> },
-          // 未匹配路径放在受保护分组内：未登录访问未知地址先去登录页，登录后再区分 403 与 404。
           { path: '*', element: <NotFoundPage /> },
         ],
       },

@@ -47,7 +47,6 @@ export function ProtectedLayout() {
               ))}
             </Space>
             <Space>
-              {/* 切换账号只是回到登录页；点击其他账号时服务端会撤销当前会话。 */}
               <Button onClick={() => navigate('/login')}>切换账号</Button>
               <Button loading={loggingOut} onClick={() => void handleLogout()}>
                 退出

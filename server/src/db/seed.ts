@@ -13,6 +13,7 @@ const users = [
   ['user.005', 'sunqi', '孙七', 'team.delivery'],
 ] as const;
 
+// 最后一列，1：内置角色，0：非内置角色
 const roles = [
   ['role.admin', '系统管理员', 1],
   ['role.pm', '项目经理', 0],
@@ -20,7 +21,7 @@ const roles = [
 ] as const;
 
 const permissions = [
-  // 最后一列表示授权时是否必须指定数据范围。
+  // 最后一列表示授权时是否必须指定数据范围，1：需要，0：不需要
   ['project.record.view', '业务记录查看', '项目记录', '查看', 1],
   ['project.record.create', '业务记录创建', '项目记录', '创建', 0],
   ['project.record.edit', '业务记录编辑', '项目记录', '编辑', 1],
@@ -71,39 +72,39 @@ const projects = [
 
 export function seedIdentityData(database: Database.Database) {
   database.transaction(() => {
-    const insertTeam = database.prepare('INSERT OR IGNORE INTO teams (id, name) VALUES (?, ?)');
+    const insertTeam = database.prepare('INSERT INTO teams (id, name) VALUES (?, ?)');
     teams.forEach((team) => insertTeam.run(...team));
 
     const insertUser = database.prepare(
-      'INSERT OR IGNORE INTO users (id, account, name, team_id) VALUES (?, ?, ?, ?)',
+      'INSERT INTO users (id, account, name, team_id) VALUES (?, ?, ?, ?)',
     );
     users.forEach((user) => insertUser.run(...user));
 
     const insertProject = database.prepare(
-      `INSERT OR IGNORE INTO projects (id, name, owner_id, team_id, status)
+      `INSERT INTO projects (id, name, owner_id, team_id, status)
        VALUES (?, ?, ?, ?, ?)`,
     );
     projects.forEach((project) => insertProject.run(...project));
 
     const insertRole = database.prepare(
-      'INSERT OR IGNORE INTO roles (id, name, is_builtin) VALUES (?, ?, ?)',
+      'INSERT INTO roles (id, name, is_builtin) VALUES (?, ?, ?)',
     );
     roles.forEach((role) => insertRole.run(...role));
 
     const insertPermission = database.prepare(
-      `INSERT OR IGNORE INTO permissions
+      `INSERT INTO permissions
         (code, name, resource, operation, requires_data_scope)
        VALUES (?, ?, ?, ?, ?)`,
     );
     permissions.forEach((permission) => insertPermission.run(...permission));
 
     const insertUserRole = database.prepare(
-      'INSERT OR IGNORE INTO user_roles (user_id, role_id) VALUES (?, ?)',
+      'INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)',
     );
     userRoles.forEach((userRole) => insertUserRole.run(...userRole));
 
     const insertRolePermission = database.prepare(
-      `INSERT OR IGNORE INTO role_permissions
+      `INSERT INTO role_permissions
         (role_id, permission_code, data_scope)
        VALUES (?, ?, ?)`,
     );

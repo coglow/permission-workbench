@@ -38,8 +38,7 @@ export function LoginPage() {
     return () => controller.abort();
   }, []);
 
-  // 来源路径由 RequireAuth 或“切换账号”写入；直接打开登录页时落到项目列表。
-  const from = (location.state as { from?: string } | null)?.from ?? '/projects';
+  const from = (location.state as { from?: string } | null)?.from ?? '/projects/list';
 
   async function handleLogin(account: string) {
     setPendingAccount(account);

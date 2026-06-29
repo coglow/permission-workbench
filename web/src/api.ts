@@ -51,6 +51,15 @@ export interface Project {
   updatedAt: string;
 }
 
+export const PROJECT_STATUSES = ['规划中', '进行中', '已完成'];
+
+/** 创建与编辑请求体只包含这三个字段；负责人与所属团队由服务端写入，避免越权。 */
+export interface ProjectInput {
+  name: string;
+  status: string;
+  description?: string;
+}
+
 export class ApiError extends Error {
   readonly status: number;
 
@@ -74,8 +83,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     try {
       const payload = (await response.json()) as { error?: string };
       if (payload.error) message = payload.error;
-    } catch {
-    }
+    } catch {}
     throw new ApiError(response.status, message);
   }
 
@@ -109,3 +117,28 @@ export const logout = () => request<void>('/api/auth/logout', { method: 'POST' }
 /** 项目列表由服务端按当前会话的操作权限与数据范围过滤。 */
 export const fetchProjects = (signal?: AbortSignal) =>
   request<{ items: Project[] }>('/api/projects', { signal });
+
+/**
+ * 项目详情。
+ *
+ * 服务端按 project.record.view 与数据范围判定：缺权限返回 403，记录不存在返回 404，
+ * 存在但越出数据范围同样返回 403。调用方按状态码分别展示，不做前端兜底过滤。
+ */
+export const fetchProject = (id: string, signal?: AbortSignal) =>
+  request<Project>(`/api/projects/${encodeURIComponent(id)}`, { signal });
+
+/**
+ * 新建项目。
+ *
+ * 负责人与所属团队由服务端按当前会话写入，前端不传也不可指定；
+ * 服务端校验失败时把原文放进 ApiError 交给表单展示。
+ */
+export const createProject = (input: ProjectInput) =>
+  request<Project>('/api/projects', { method: 'POST', body: JSON.stringify(input) });
+
+/** 编辑项目：只提交名称、状态与描述，服务端按 project.record.edit 与数据范围判定。 */
+export const updateProject = (id: string, input: ProjectInput) =>
+  request<Project>(`/api/projects/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });

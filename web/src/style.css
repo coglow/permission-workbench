@@ -59,3 +59,14 @@ body {
 .permission-list {
   padding-left: 12px;
 }
+
+.detail-loading {
+  display: grid;
+  gap: 12px;
+  place-items: center;
+  padding: 32px 0;
+}
+
+.form-error {
+  margin-bottom: 16px;
+}

@@ -1,8 +1,11 @@
-import { Button, Result } from 'antd';
+import { Button, Result, Space } from 'antd';
 import { isRouteErrorResponse, useNavigate, useRevalidator, useRouteError } from 'react-router';
 
+/** 项目列表的固定路径；403、404 与详情页的返回入口都指向这里。 */
+const PROJECT_LIST_PATH = '/projects/list';
+
 /**
- * 403：已登录，但当前授权不足以访问该页面。
+ * 403：已登录，但当前授权不足以访问该页面或记录。
  */
 export function ForbiddenPage({ message }: { message?: string }) {
   const navigate = useNavigate();
@@ -12,20 +15,32 @@ export function ForbiddenPage({ message }: { message?: string }) {
       status="403"
       title="403"
       subTitle={message ?? '当前账号没有访问该页面的权限。'}
-      extra={<Button onClick={() => navigate('/login')}>切换账号</Button>}
+      extra={
+        <Space>
+          <Button type="primary" onClick={() => navigate(PROJECT_LIST_PATH)}>
+            返回项目列表
+          </Button>
+          <Button onClick={() => navigate('/login')}>切换账号</Button>
+        </Space>
+      }
     />
   );
 }
 
-export function NotFoundPage() {
+/** 404：路径未匹配，或详情页访问的记录不存在。 */
+export function NotFoundPage({ message }: { message?: string }) {
   const navigate = useNavigate();
 
   return (
     <Result
       status="404"
       title="404"
-      subTitle="页面不存在。"
-      extra={<Button onClick={() => navigate('/projects')}>返回项目列表</Button>}
+      subTitle={message ?? '页面不存在。'}
+      extra={
+        <Button type="primary" onClick={() => navigate(PROJECT_LIST_PATH)}>
+          返回项目列表
+        </Button>
+      }
     />
   );
 }
@@ -38,9 +53,7 @@ export function RootErrorPage() {
   const error = useRouteError();
   const { revalidate } = useRevalidator();
 
-  const message = isRouteErrorResponse(error)
-    ? `请求失败`
-    : '无法连接服务，请稍后重试……';
+  const message = isRouteErrorResponse(error) ? `请求失败` : '无法连接服务，请稍后重试……';
 
   return (
     <main className="page">

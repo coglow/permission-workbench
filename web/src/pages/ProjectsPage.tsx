@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Button, Card, Space, Table, Typography, type TableProps } from 'antd';
-import { useNavigate, useRevalidator } from 'react-router';
-import { ApiError, fetchProjects, type Project } from '../api';
+import { Alert, Button, Card, Form, Modal, Space, Table, Typography, type TableProps } from 'antd';
+import { useLocation, useNavigate, useRevalidator } from 'react-router';
+import { ApiError, createProject, fetchProjects, type Project, type ProjectInput } from '../api';
+import { PROJECT_FORM_DEFAULTS, ProjectFormFields } from '../components/ProjectFormFields';
 import { scopeNames, useIdentity, usePermission } from '../identity';
 import { ForbiddenPage } from './StatusPages';
 
@@ -12,13 +13,25 @@ type ListState =
   | { kind: 'denied'; message: string }
   | { kind: 'failed'; message: string };
 
-const columns: TableProps<Project>['columns'] = [
-  { title: '项目编号', key: 'id', width: 120, render: (_value, project) => project.id },
-  { title: '项目名称', key: 'name', render: (_value, project) => project.name },
-  { title: '负责人', key: 'owner', width: 140, render: (_value, project) => project.owner.name },
-  { title: '所属团队', key: 'team', width: 160, render: (_value, project) => project.team.name },
-  { title: '状态', key: 'status', width: 120, render: (_value, project) => project.status },
-];
+function createColumns(onView: (id: string) => void): TableProps<Project>['columns'] {
+  return [
+    { title: '项目编号', key: 'id', width: 120, render: (_value, project) => project.id },
+    { title: '项目名称', key: 'name', render: (_value, project) => project.name },
+    { title: '负责人', key: 'owner', width: 140, render: (_value, project) => project.owner.name },
+    { title: '所属团队', key: 'team', width: 160, render: (_value, project) => project.team.name },
+    { title: '状态', key: 'status', width: 120, render: (_value, project) => project.status },
+    {
+      title: '操作',
+      key: 'actions',
+      width: 100,
+      render: (_value, project) => (
+        <Button type="link" size="small" onClick={() => onView(project.id)}>
+          查看
+        </Button>
+      ),
+    },
+  ];
+}
 
 /**
  * 项目列表页。
@@ -29,10 +42,17 @@ const columns: TableProps<Project>['columns'] = [
 export function ProjectsPage() {
   const identity = useIdentity();
   const viewPermission = usePermission('project.record.view');
+  const createPermission = usePermission('project.record.create');
   const navigate = useNavigate();
+  const location = useLocation();
   const { revalidate } = useRevalidator();
+  const columns = createColumns((id) => navigate(`/projects/records/${id}`));
 
   const [state, setState] = useState<ListState>({ kind: 'loading' });
+  const [createOpen, setCreateOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [createForm] = Form.useForm<ProjectInput>();
 
   const load = useCallback(
     async (signal?: AbortSignal) => {
@@ -46,9 +66,9 @@ export function ProjectsPage() {
         if (signal?.aborted) return;
 
         if (error instanceof ApiError && error.status === 401) {
-          // 会话在页面停留期间失效：重新确认身份后回到登录页，避免继续显示旧账号的数据。
+          // 会话在页面停留期间失效：重新确认身份后回登录页，并把当前地址作为登录后的回跳目标。
           await revalidate();
-          navigate('/login', { replace: true });
+          navigate('/login', { replace: true, state: { from: location.pathname } });
           return;
         }
 
@@ -64,7 +84,7 @@ export function ProjectsPage() {
         });
       }
     },
-    [navigate, revalidate],
+    [location.pathname, navigate, revalidate],
   );
 
   useEffect(() => {
@@ -73,6 +93,28 @@ export function ProjectsPage() {
     void load(controller.signal);
     return () => controller.abort();
   }, [load, identity?.user.id]);
+
+  function closeCreateModal() {
+    setCreateOpen(false);
+    setCreateError(null);
+    createForm.resetFields();
+  }
+
+  async function handleCreate(values: ProjectInput) {
+    setCreating(true);
+    setCreateError(null);
+
+    try {
+      await createProject(values);
+      // 提交成功后关闭弹窗并重新取列表，让新记录按当前数据范围立即出现。
+      closeCreateModal();
+      await load();
+    } catch (error) {
+      setCreateError(error instanceof Error ? error.message : '创建失败');
+    } finally {
+      setCreating(false);
+    }
+  }
 
   function renderList() {
     if (state.kind === 'denied') return <ForbiddenPage message={state.message} />;
@@ -133,13 +175,41 @@ export function ProjectsPage() {
       <Card
         title={state.kind === 'ready' ? `项目列表（共 ${state.projects.length} 条）` : '项目列表'}
         extra={
-          <Button disabled={state.kind === 'loading'} onClick={() => void load()}>
-            刷新
-          </Button>
+          <Space>
+            {/* 新建入口按 project.record.create 显示；服务端仍会独立校验一次。 */}
+            {createPermission && (
+              <Button type="primary" onClick={() => setCreateOpen(true)}>
+                新建
+              </Button>
+            )}
+            <Button disabled={state.kind === 'loading'} onClick={() => void load()}>
+              刷新
+            </Button>
+          </Space>
         }
       >
         {renderList()}
       </Card>
+
+      <Modal
+        title="新建项目"
+        open={createOpen}
+        confirmLoading={creating}
+        okText="创建"
+        cancelText="取消"
+        onOk={() => createForm.submit()}
+        onCancel={closeCreateModal}
+      >
+        {createError && <Alert className="form-error" type="error" showIcon title={createError} />}
+        <Form
+          form={createForm}
+          layout="vertical"
+          initialValues={PROJECT_FORM_DEFAULTS}
+          onFinish={(values) => void handleCreate(values)}
+        >
+          <ProjectFormFields />
+        </Form>
+      </Modal>
     </Space>
   );
 }

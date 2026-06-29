@@ -120,6 +120,9 @@ export function readIdentity(database: Database.Database, userId: string) {
   };
 }
 
+/** readIdentity 的返回值类型：授权守卫与页面取数都要引用同一份身份结构。 */
+export type Identity = NonNullable<ReturnType<typeof readIdentity>>;
+
 function getSessionUserId(database: Database.Database, request: Request) {
   const token = request.cookies?.[SESSION_COOKIE] as string | undefined;
   if (!token) return null;
@@ -164,7 +167,6 @@ export function getAuthenticatedUserId(
 export function createAuthRouter(database: Database.Database) {
   const router = Router();
 
-  // 登录页未认证时也需要账号标签；这里只返回账号和姓名。
   router.get('/accounts', (_request, response) => {
     const accounts = database
       .prepare("SELECT account, name FROM users WHERE status = 'enabled' ORDER BY account")

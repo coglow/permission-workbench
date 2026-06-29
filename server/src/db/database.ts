@@ -2,9 +2,12 @@ import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import Database from 'better-sqlite3';
 
+export function resolveDatabasePath() {
+  return process.env.DATABASE_PATH ?? resolve(process.cwd(), 'data', 'permission-workbench.sqlite');
+}
+
 export function openDatabase() {
-  const databasePath =
-    process.env.DATABASE_PATH ?? resolve(process.cwd(), 'data', 'permission-workbench.sqlite');
+  const databasePath = resolveDatabasePath();
   mkdirSync(dirname(databasePath), { recursive: true });
 
   const database = new Database(databasePath);
