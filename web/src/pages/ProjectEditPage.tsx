@@ -1,11 +1,12 @@
-import { useState } from 'react';
 import { Alert, Button, Card, Descriptions, Form, Space } from 'antd';
-import { useLocation, useNavigate, useParams, useRevalidator } from 'react-router';
-import { ApiError, updateProject, type ProjectInput } from '../api';
+import { useNavigate, useParams } from 'react-router';
+import { updateProject } from '../api';
+import type { ProjectInput } from '../../../shared/contracts.ts';
 import { ProjectFormFields } from '../components/ProjectFormFields';
 import { ProjectRecordStatus } from '../components/ProjectRecordStatus';
 import { usePermission } from '../identity';
 import { useProjectRecord } from '../useProjectRecord';
+import { useMutation } from '../useMutation';
 import { ForbiddenPage, NotFoundPage } from './StatusPages';
 
 /**
@@ -18,42 +19,26 @@ export function ProjectEditPage() {
   const { id } = useParams();
   const editPermission = usePermission('project.record.edit');
   const navigate = useNavigate();
-  const location = useLocation();
-  const { revalidate } = useRevalidator();
 
   const projectId = id ?? '';
 
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const mutation = useMutation('保存失败');
   // 没有编辑权限时不取数，直接按 403 展示。
   const { state, reload } = useProjectRecord(projectId, { enabled: Boolean(editPermission) });
 
   async function handleSave(values: ProjectInput) {
-    setSaving(true);
-    setSaveError(null);
-
-    try {
-      await updateProject(projectId, values);
-      // 保存成功后回到详情页，让用户看到服务端返回的最新值。
+    if (await mutation.run(() => updateProject(projectId, values))) {
       navigate(`/projects/records/${projectId}`, { replace: true });
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 401) {
-        // 与取数保持同一套会话失效处理：确认身份后带着当前地址回登录页。
-        await revalidate();
-        navigate('/login', { replace: true, state: { from: location.pathname } });
-        return;
-      }
-
-      // 服务端返回的原文直接展示，不覆盖成通用提示。
-      setSaveError(error instanceof Error ? error.message : '保存失败');
-    } finally {
-      setSaving(false);
     }
   }
 
   if (!editPermission) return <ForbiddenPage message="缺少项目编辑权限" />;
   if (state.kind === 'denied') return <ForbiddenPage message={state.message} />;
   if (state.kind === 'missing') return <NotFoundPage message={state.message} />;
+  // 有编辑权限码也可能超出该记录的编辑范围，直接访问编辑地址同样不能打开表单。
+  if (state.kind === 'ready' && !state.data.canEdit) {
+    return <ForbiddenPage message="项目记录不在可编辑的数据范围内" />;
+  }
 
   return (
     <Card
@@ -67,27 +52,29 @@ export function ProjectEditPage() {
             column={1}
             size="small"
             items={[
-              { key: 'id', label: '项目编号', children: state.project.id },
-              { key: 'owner', label: '负责人', children: state.project.owner.name },
-              { key: 'team', label: '所属团队', children: state.project.team.name },
+              { key: 'id', label: '项目编号', children: state.data.id },
+              { key: 'owner', label: '负责人', children: state.data.owner.name },
+              { key: 'team', label: '所属团队', children: state.data.team.name },
             ]}
           />
 
-          {saveError && <Alert className="form-error" type="error" showIcon title={saveError} />}
+          {mutation.error && (
+            <Alert className="form-error" type="error" showIcon title={mutation.error} />
+          )}
 
           <Form
             layout="vertical"
             initialValues={{
-              name: state.project.name,
-              status: state.project.status,
-              description: state.project.description,
+              name: state.data.name,
+              status: state.data.status,
+              description: state.data.description,
             }}
             onFinish={(values) => void handleSave(values)}
           >
             <ProjectFormFields />
 
             <Space>
-              <Button type="primary" htmlType="submit" loading={saving}>
+              <Button type="primary" htmlType="submit" loading={mutation.pending}>
                 保存
               </Button>
               <Button onClick={() => navigate(`/projects/records/${projectId}`)}>取消</Button>

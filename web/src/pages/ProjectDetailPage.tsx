@@ -1,7 +1,8 @@
-import { Button, Card, Descriptions, Space } from 'antd';
+import { Button, Card, Descriptions, Space, Tag } from 'antd';
 import { useNavigate, useParams } from 'react-router';
+import { PROJECT_STATUS_COLORS } from '../api';
 import { ProjectRecordStatus } from '../components/ProjectRecordStatus';
-import { usePermission } from '../identity';
+import { useDefaultPagePath } from '../identity';
 import { useProjectRecord } from '../useProjectRecord';
 import { ForbiddenPage, NotFoundPage } from './StatusPages';
 
@@ -13,8 +14,8 @@ import { ForbiddenPage, NotFoundPage } from './StatusPages';
  */
 export function ProjectDetailPage() {
   const { id } = useParams();
-  const editPermission = usePermission('project.record.edit');
   const navigate = useNavigate();
+  const defaultPath = useDefaultPagePath();
 
   // 路由保证 :id 一定有值，这里统一取出来，避免在回调里反复处理 undefined。
   const projectId = id ?? '';
@@ -29,13 +30,13 @@ export function ProjectDetailPage() {
       title="项目详情"
       extra={
         <Space>
-          {/* 编辑入口按 project.record.edit 显示；页面保存时服务端仍会独立校验。 */}
-          {editPermission && (
+          {/* 入口按服务端返回的记录级编辑能力显示，写接口仍独立校验最新授权。 */}
+          {state.kind === 'ready' && state.data.canEdit && (
             <Button type="primary" onClick={() => navigate(`/projects/records/${projectId}/edit`)}>
               编辑
             </Button>
           )}
-          <Button onClick={() => navigate('/projects/list')}>返回列表</Button>
+          <Button onClick={() => navigate(defaultPath ?? '/')}>返回可访问页面</Button>
         </Space>
       }
     >
@@ -44,14 +45,20 @@ export function ProjectDetailPage() {
           column={1}
           size="middle"
           items={[
-            { key: 'id', label: '项目编号', children: state.project.id },
-            { key: 'name', label: '项目名称', children: state.project.name },
-            { key: 'owner', label: '负责人', children: state.project.owner.name },
-            { key: 'team', label: '所属团队', children: state.project.team.name },
-            { key: 'status', label: '状态', children: state.project.status },
-            { key: 'description', label: '描述', children: state.project.description || '—' },
-            { key: 'createdAt', label: '创建时间', children: state.project.createdAt },
-            { key: 'updatedAt', label: '更新时间', children: state.project.updatedAt },
+            { key: 'id', label: '项目编号', children: state.data.id },
+            { key: 'name', label: '项目名称', children: state.data.name },
+            { key: 'owner', label: '负责人', children: state.data.owner.name },
+            { key: 'team', label: '所属团队', children: state.data.team.name },
+            {
+              key: 'status',
+              label: '状态',
+              children: (
+                <Tag color={PROJECT_STATUS_COLORS[state.data.status]}>{state.data.status}</Tag>
+              ),
+            },
+            { key: 'description', label: '描述', children: state.data.description || '—' },
+            { key: 'createdAt', label: '创建时间', children: state.data.createdAt },
+            { key: 'updatedAt', label: '更新时间', children: state.data.updatedAt },
           ]}
         />
       ) : (

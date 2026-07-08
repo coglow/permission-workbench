@@ -1,8 +1,31 @@
 import { useEffect, useState } from 'react';
 import { Alert, Button, Card, Space, Typography } from 'antd';
 import { useLocation, useNavigate, useRevalidator } from 'react-router';
-import { fetchAccounts, login, type Account } from '../api';
+import { fetchAccounts, login } from '../api';
+import type { Account } from '../../../shared/contracts.ts';
 import { useIdentity } from '../identity';
+
+const demoNotes: Record<string, { perspective: '管理视角' | '业务视角'; purpose: string }> = {
+  zhangsan: { perspective: '管理视角', purpose: '管理端配置演示' },
+  lisi: { perspective: '业务视角', purpose: '团队可见范围演示' },
+  wangwu: { perspective: '业务视角', purpose: '跨团队拒绝演示' },
+  zhaoliu: { perspective: '业务视角', purpose: '多角色并集演示' },
+  sunqi: { perspective: '业务视角', purpose: '本人可见范围演示' },
+  zhouba: { perspective: '业务视角', purpose: '上级部门可见下级团队演示' },
+  qianjiu: { perspective: '业务视角', purpose: '平行分支不可见演示' },
+};
+
+const demoOrder = Object.keys(demoNotes);
+const perspectives = ['管理视角', '业务视角'] as const;
+
+function readDemoNote(account: string) {
+  return demoNotes[account] ?? { perspective: '业务视角' as const, purpose: '' };
+}
+
+function demoRank(account: string) {
+  const index = demoOrder.indexOf(account);
+  return index === -1 ? demoOrder.length : index;
+}
 
 /**
  * 登录成功后先刷新根路由 loader 的身份数据，再跳转目标页面，
@@ -38,7 +61,7 @@ export function LoginPage() {
     return () => controller.abort();
   }, []);
 
-  const from = (location.state as { from?: string } | null)?.from ?? '/projects/list';
+  const from = (location.state as { from?: string } | null)?.from ?? '/';
 
   async function handleLogin(account: string) {
     setPendingAccount(account);
@@ -55,6 +78,16 @@ export function LoginPage() {
       setPendingAccount(null);
     }
   }
+
+  // 按固定顺序分组，组内按演示顺序排列；空组不渲染。
+  const groups = perspectives
+    .map((perspective) => ({
+      perspective,
+      accounts: accounts
+        .filter((account) => readDemoNote(account.account).perspective === perspective)
+        .sort((a, b) => demoRank(a.account) - demoRank(b.account)),
+    }))
+    .filter((group) => group.accounts.length > 0);
 
   return (
     <main className="page">
@@ -85,19 +118,50 @@ export function LoginPage() {
           {accountsError && <Alert type="error" showIcon title={accountsError} />}
           {error && <Alert type="error" showIcon title={error} />}
 
-          <Space className="account-list" wrap>
-            {accounts.map((account) => (
-              <Button
-                key={account.account}
-                type={identity?.user.account === account.account ? 'primary' : 'default'}
-                loading={pendingAccount === account.account}
-                disabled={pendingAccount !== null}
-                onClick={() => void handleLogin(account.account)}
-              >
-                {account.name}
-              </Button>
+          <div className="account-groups">
+            {groups.map((group) => (
+              <section key={group.perspective}>
+                <Typography.Text type="secondary" className="account-group-title">
+                  {group.perspective}
+                </Typography.Text>
+
+                <div className="account-options">
+                  {group.accounts.map((account) => {
+                    const note = readDemoNote(account.account);
+                    // 停用角色已由服务端过滤，这里为空即代表当前没有生效角色。
+                    const meta = [
+                      account.team.name,
+                      account.roles.length > 0
+                        ? account.roles.map((role) => role.name).join(' + ')
+                        : '无生效角色',
+                    ].join(' · ');
+
+                    return (
+                      <Button
+                        key={account.account}
+                        block
+                        className="account-option"
+                        type={identity?.user.account === account.account ? 'primary' : 'default'}
+                        loading={pendingAccount === account.account}
+                        disabled={pendingAccount !== null}
+                        onClick={() => void handleLogin(account.account)}
+                      >
+                        <span className="account-option-body">
+                          <span className="account-option-head">
+                            <span className="account-option-name">{account.name}</span>
+                            <span className="account-option-meta">{meta}</span>
+                          </span>
+                          {note.purpose && (
+                            <span className="account-option-purpose">{note.purpose}</span>
+                          )}
+                        </span>
+                      </Button>
+                    );
+                  })}
+                </div>
+              </section>
             ))}
-          </Space>
+          </div>
         </Space>
       </Card>
     </main>

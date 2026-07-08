@@ -1,8 +1,17 @@
 import { Router, type RequestHandler, type Response } from 'express';
 import type Database from 'better-sqlite3';
-import { isWithinDataScope, readAccess, readDataScope, requirePermission } from './access.ts';
+import {
+  buildDataScopeFilter,
+  isWithinDataScope,
+  readAccess,
+  readDataScope,
+  requirePermission,
+} from './access.ts';
+import { readBody, toDisplayTimestamp } from './util.ts';
+import { isProjectStatus } from '../../shared/catalog.ts';
+import type { ParseResult, Project, ProjectDetail, ProjectStatus } from '../../shared/contracts.ts';
 
-// 列表、详情和编辑共用同一套查询列与关联，保证三处返回的记录结构完全一致。
+// 列表、详情和编辑共用查询列与关联，保持业务字段一致；详情额外返回记录级编辑能力。
 const PROJECT_COLUMNS = `p.id, p.name, p.status, p.description, p.created_at, p.updated_at,
                 u.id AS owner_id, u.name AS owner_name,
                 t.id AS team_id, t.name AS team_name`;
@@ -11,16 +20,13 @@ const PROJECT_SOURCE = `FROM projects p
          JOIN users u ON u.id = p.owner_id
          JOIN teams t ON t.id = p.team_id`;
 
-// 状态取值与 projects 表的 CHECK 约束保持一致。
-const PROJECT_STATUSES = ['规划中', '进行中', '已完成'];
-
 // 创建与编辑都只接受这三个字段；负责人与所属团队由服务端写入，且不可编辑。
 const RECORD_FIELDS = ['name', 'status', 'description'];
 
 interface ProjectRow {
   id: string;
   name: string;
-  status: string;
+  status: ProjectStatus;
   description: string;
   created_at: string;
   updated_at: string;
@@ -32,7 +38,7 @@ interface ProjectRow {
 
 interface ProjectInput {
   name?: string;
-  status?: string;
+  status?: ProjectStatus;
   description?: string;
 }
 
@@ -41,27 +47,8 @@ function currentTimestamp() {
   return new Date().toISOString().slice(0, 23).replace('T', ' ');
 }
 
-// 接口返回的展示时间：北京时间（Asia/Shanghai）、只保留到秒
-const BEIJING_TIME_FORMATTER = new Intl.DateTimeFormat('sv-SE', {
-  timeZone: 'Asia/Shanghai',
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-  hour12: false,
-});
-
-function toDisplayTimestamp(value: string) {
-  const parsed = new Date(`${value.replace(' ', 'T')}Z`);
-  if (Number.isNaN(parsed.getTime())) return value;
-
-  return BEIJING_TIME_FORMATTER.format(parsed);
-}
-
-// 记录的对外结构：列表、详情、创建与编辑返回同一结构。
-function toProjectResponse(project: ProjectRow) {
+// 项目的基础响应：列表、详情、创建与编辑复用同一套业务字段映射。
+function toProjectResponse(project: ProjectRow): Project {
   return {
     id: project.id,
     name: project.name,
@@ -79,47 +66,48 @@ function findProject(database: Database.Database, id: string) {
     ProjectRow | undefined;
 }
 
-// 解析创建／编辑请求体：只接受名称、状态、描述，返回归一化后的值或可直接返回给客户端的错误信息。
-function parseProjectInput(rawBody: unknown): { input: ProjectInput; error?: string } {
-  if (
-    rawBody !== undefined &&
-    (rawBody === null || typeof rawBody !== 'object' || Array.isArray(rawBody))
-  ) {
-    return { input: {}, error: '请求体必须是 JSON 对象' };
-  }
-
-  const body = (rawBody ?? {}) as Record<string, unknown>;
-
+/**
+ * 解析创建／编辑请求体：只接受名称、状态、描述，返回归一化后的值或可直接返回给客户端的错误信息。
+ *
+ * `mode` 区分必填校验口径：create 必须提供 name 与 status，edit 允许部分字段更新。
+ * 由调用方统一传入，避免 POST 处理函数再单独补必填检查。
+ */
+function parseProjectInput(rawBody: unknown, mode: 'create' | 'edit'): ParseResult<ProjectInput> {
   // 字段白名单：负责人、所属团队以及任何未知字段都不接受。
-  const unknownField = Object.keys(body).find((key) => !RECORD_FIELDS.includes(key));
-  if (unknownField) {
-    return { input: {}, error: `不支持的字段：${unknownField}` };
+  const parsed = readBody(rawBody, RECORD_FIELDS);
+  if (!parsed.ok) {
+    return { ok: false, error: parsed.error };
   }
+  const body = parsed.value;
 
   const input: ProjectInput = {};
 
   if (body.name !== undefined) {
     if (typeof body.name !== 'string' || body.name.trim().length === 0) {
-      return { input: {}, error: '项目名称不能为空' };
+      return { ok: false, error: '项目名称不能为空' };
     }
     input.name = body.name.trim();
+  } else if (mode === 'create') {
+    return { ok: false, error: '项目名称不能为空' };
   }
 
   if (body.status !== undefined) {
-    if (typeof body.status !== 'string' || !PROJECT_STATUSES.includes(body.status)) {
-      return { input: {}, error: '状态只能是「规划中」「进行中」「已完成」之一' };
+    if (!isProjectStatus(body.status)) {
+      return { ok: false, error: '状态只能是「规划中」「进行中」「已完成」之一' };
     }
     input.status = body.status;
+  } else if (mode === 'create') {
+    return { ok: false, error: '状态不能为空' };
   }
 
   if (body.description !== undefined) {
     if (typeof body.description !== 'string') {
-      return { input: {}, error: '项目描述必须是文本' };
+      return { ok: false, error: '项目描述必须是文本' };
     }
     input.description = body.description;
   }
 
-  return { input };
+  return { ok: true, value: input };
 }
 
 // 新记录编号沿用样例的 P + 递增数字：取当前最大编号 +1
@@ -182,20 +170,13 @@ export function createProjectsRouter(database: Database.Database) {
 
   router.get('/', requireView, (_request, response) => {
     const access = readAccess(response);
-
-    // 数据范围条件由服务端加入 SQL，浏览器拿不到越权记录。
-    const conditions: string[] = [];
-    const parameters: string[] = [];
     const scope = readDataScope(access);
-    if (scope === 'self') {
-      conditions.push('p.owner_id = ?');
-      parameters.push(access.userId);
-    } else if (scope === 'team') {
-      conditions.push('p.team_id = ?');
-      parameters.push(access.identity.user.team.id);
-    }
-
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    // 数据范围条件由服务端加入 SQL，浏览器拿不到越权记录。
+    const filter = buildDataScopeFilter(scope, access, {
+      ownerColumn: 'p.owner_id',
+      teamColumn: 'p.team_id',
+    });
+    const whereClause = filter.sql ? `WHERE ${filter.sql}` : '';
     const projects = database
       .prepare(
         `SELECT ${PROJECT_COLUMNS}
@@ -203,7 +184,7 @@ export function createProjectsRouter(database: Database.Database) {
          ${whereClause}
          ORDER BY CAST(SUBSTR(p.id, 2) AS INTEGER)`,
       )
-      .all(...parameters) as ProjectRow[];
+      .all(...filter.params) as ProjectRow[];
 
     response.json({ items: projects.map(toProjectResponse) });
   });
@@ -213,20 +194,13 @@ export function createProjectsRouter(database: Database.Database) {
     requirePermission(database, 'project.record.create', { deniedMessage: '缺少项目创建权限' }),
     (request, response) => {
       const access = readAccess(response);
-      const { input, error } = parseProjectInput(request.body);
-      if (error) {
-        response.status(400).json({ error });
+      // create 模式：parseProjectInput 内部已校验 name/status 必填。
+      const parsed = parseProjectInput(request.body, 'create');
+      if (!parsed.ok) {
+        response.status(400).json({ error: parsed.error });
         return;
       }
-
-      if (input.name === undefined) {
-        response.status(400).json({ error: '项目名称不能为空' });
-        return;
-      }
-      if (input.status === undefined) {
-        response.status(400).json({ error: '状态不能为空' });
-        return;
-      }
+      const input = parsed.value;
 
       // 负责人、所属团队与创建时间由服务端写入，请求体不能指定。
       const timestamp = currentTimestamp();
@@ -253,7 +227,24 @@ export function createProjectsRouter(database: Database.Database) {
 
   // 详情：守卫链顺序即 认证 → 操作权限 → 记录存在性 → 数据范围。
   router.get('/:id', requireView, requireProjectInScope(database), (_request, response) => {
-    response.json(toProjectResponse(readProject(response)));
+    const project = readProject(response);
+    const access = readAccess(response);
+    const editScope = access.identity.permissions.find(
+      (permission) => permission.code === 'project.record.edit',
+    )?.dataScope;
+    // 复用写接口的数据范围判定；查看守卫已装载团队子树，计算 canEdit 不再查询数据库。
+    const detail: ProjectDetail = {
+      ...toProjectResponse(project),
+      canEdit: Boolean(
+        editScope &&
+        isWithinDataScope(
+          editScope,
+          { ownerId: project.owner_id, teamId: project.team_id },
+          access,
+        ),
+      ),
+    };
+    response.json(detail);
   });
 
   // 编辑：同一套守卫链，鉴权与数据范围全部通过后才校验请求体。
@@ -265,11 +256,12 @@ export function createProjectsRouter(database: Database.Database) {
     }),
     requireProjectInScope(database),
     (request, response) => {
-      const { input, error } = parseProjectInput(request.body);
-      if (error) {
-        response.status(400).json({ error });
+      const parsed = parseProjectInput(request.body, 'edit');
+      if (!parsed.ok) {
+        response.status(400).json({ error: parsed.error });
         return;
       }
+      const input = parsed.value;
 
       if (
         input.name === undefined &&

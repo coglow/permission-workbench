@@ -1,11 +1,12 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { Router, type Request, type Response } from 'express';
 import type Database from 'better-sqlite3';
+import { USER_COLUMNS, USER_SOURCE } from './util.ts';
+import { SCOPE_RANK } from '../../shared/catalog.ts';
+import type { DataScope, PermissionCode, Identity } from '../../shared/contracts.ts';
 
 const SESSION_COOKIE = 'permission_workbench_session';
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
-
-type DataScope = 'self' | 'team' | 'all';
 
 interface UserRow {
   id: string;
@@ -16,24 +17,17 @@ interface UserRow {
 }
 
 interface PermissionRow {
-  code: string;
+  code: PermissionCode;
   name: string;
   requires_data_scope: number;
   data_scope: DataScope | null;
 }
 
 interface EffectivePermission {
-  code: string;
+  code: PermissionCode;
   name: string;
   dataScope: DataScope | null;
 }
-
-// 多个角色授予同一权限时，范围较宽者优先。
-const scopeRank: Record<DataScope, number> = {
-  self: 1,
-  team: 2,
-  all: 3,
-};
 
 // 页面脚本不能读取会话 Cookie；生产环境通过 HTTPS 提供服务时启用 Secure。
 const cookieOptions = {
@@ -48,14 +42,9 @@ function hashToken(token: string) {
   return createHash('sha256').update(token).digest('hex');
 }
 
-export function readIdentity(database: Database.Database, userId: string) {
+export function readIdentity(database: Database.Database, userId: string): Identity | null {
   const user = database
-    .prepare(
-      `SELECT u.id, u.account, u.name, t.id AS team_id, t.name AS team_name
-       FROM users u
-       JOIN teams t ON t.id = u.team_id
-       WHERE u.id = ? AND u.status = 'enabled'`,
-    )
+    .prepare(`SELECT ${USER_COLUMNS} ${USER_SOURCE} WHERE u.id = ? AND u.status = 'enabled'`)
     .get(userId) as UserRow | undefined;
 
   if (!user) return null;
@@ -102,7 +91,7 @@ export function readIdentity(database: Database.Database, userId: string) {
     if (
       permission.data_scope &&
       existing.dataScope &&
-      scopeRank[permission.data_scope] > scopeRank[existing.dataScope]
+      SCOPE_RANK[permission.data_scope] > SCOPE_RANK[existing.dataScope]
     ) {
       existing.dataScope = permission.data_scope;
     }
@@ -121,7 +110,7 @@ export function readIdentity(database: Database.Database, userId: string) {
 }
 
 /** readIdentity 的返回值类型：授权守卫与页面取数都要引用同一份身份结构。 */
-export type Identity = NonNullable<ReturnType<typeof readIdentity>>;
+export type { Identity } from '../../shared/contracts.ts';
 
 function getSessionUserId(database: Database.Database, request: Request) {
   const token = request.cookies?.[SESSION_COOKIE] as string | undefined;
@@ -169,9 +158,42 @@ export function createAuthRouter(database: Database.Database) {
 
   router.get('/accounts', (_request, response) => {
     const accounts = database
-      .prepare("SELECT account, name FROM users WHERE status = 'enabled' ORDER BY account")
-      .all();
-    response.json(accounts);
+      .prepare(
+        `SELECT ${USER_COLUMNS} ${USER_SOURCE} WHERE u.status = 'enabled' ORDER BY u.account`,
+      )
+      .all() as Array<{
+      id: string;
+      account: string;
+      name: string;
+      team_id: string;
+      team_name: string;
+    }>;
+
+    const roleRows = database
+      .prepare(
+        `SELECT ur.user_id, r.id AS role_id, r.name AS role_name
+         FROM user_roles ur
+         JOIN roles r ON r.id = ur.role_id
+         WHERE r.status = 'enabled'
+         ORDER BY ur.user_id, r.id`,
+      )
+      .all() as Array<{ user_id: string; role_id: string; role_name: string }>;
+
+    const rolesByUser = new Map<string, Array<{ id: string; name: string }>>();
+    for (const row of roleRows) {
+      const roles = rolesByUser.get(row.user_id) ?? [];
+      roles.push({ id: row.role_id, name: row.role_name });
+      rolesByUser.set(row.user_id, roles);
+    }
+
+    response.json(
+      accounts.map((account) => ({
+        account: account.account,
+        name: account.name,
+        team: { id: account.team_id, name: account.team_name },
+        roles: rolesByUser.get(account.id) ?? [],
+      })),
+    );
   });
 
   router.post('/login', (request, response) => {

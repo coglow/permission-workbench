@@ -33,9 +33,32 @@ body {
   border-bottom: 1px solid #f0f0f0;
 }
 
+.app-body {
+  display: flex;
+  flex: 1;
+  align-items: stretch;
+}
+
+.app-sider {
+  flex-shrink: 0;
+  width: 220px;
+  padding: 12px 0;
+  background: #ffffff;
+  border-right: 1px solid #f0f0f0;
+  transition: width 0.2s;
+}
+
+.app-sider-collapsed {
+  width: 80px;
+}
+
+.app-navigation {
+  border-inline-end: none;
+}
+
 .app-main {
   flex: 1;
-  width: min(100%, 1100px);
+  max-width: 1100px;
   margin: 0 auto;
   padding: 24px;
 }
@@ -52,8 +75,49 @@ body {
   width: 100%;
 }
 
-.account-list {
-  margin-top: 12px;
+.account-groups {
+  display: grid;
+  gap: 16px;
+  width: 100%;
+}
+
+.account-group-title {
+  display: block;
+  margin-bottom: 8px;
+}
+
+.account-options {
+  display: grid;
+  gap: 8px;
+}
+
+.account-options .account-option {
+  height: auto;
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.account-option-body,
+.account-option-purpose {
+  display: block;
+  width: 100%;
+}
+
+.account-option-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.account-option-name {
+  font-weight: 500;
+}
+
+.account-option-meta,
+.account-option-purpose {
+  font-size: 12px;
+  opacity: 0.7;
 }
 
 .permission-list {
@@ -69,4 +133,13 @@ body {
 
 .form-error {
   margin-bottom: 16px;
+}
+
+.scope-select {
+  width: 120px;
+}
+
+.disabled-hint {
+  display: inline-block;
+  cursor: not-allowed;
 }

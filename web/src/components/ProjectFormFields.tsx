@@ -1,5 +1,6 @@
 import { Form, Input, Select } from 'antd';
-import { PROJECT_STATUSES, type ProjectInput } from '../api';
+import { PROJECT_STATUSES } from '../../../shared/catalog.ts';
+import type { ProjectInput } from '../../../shared/contracts.ts';
 
 export function ProjectFormFields() {
   return (

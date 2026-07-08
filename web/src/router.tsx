@@ -1,13 +1,13 @@
 import { Spin } from 'antd';
-import { createBrowserRouter, Navigate } from 'react-router';
-import { fetchIdentity } from './api';
+import { createBrowserRouter } from 'react-router';
+import { fetchIdentity, fetchNavigation, setForbiddenHandler } from './api';
 import { RequireAuth } from './identity';
 import { ProtectedLayout } from './layout';
+import { ConfiguredPage } from './pages/ConfiguredPage';
 import { LoginPage } from './pages/LoginPage';
 import { ProjectDetailPage } from './pages/ProjectDetailPage';
 import { ProjectEditPage } from './pages/ProjectEditPage';
-import { ProjectsPage } from './pages/ProjectsPage';
-import { ForbiddenPage, NotFoundPage, RootErrorPage } from './pages/StatusPages';
+import { ForbiddenPage, HomePage, NotFoundPage, RootErrorPage } from './pages/StatusPages';
 
 /**
  * 首屏加载态。
@@ -23,26 +23,27 @@ function InitialLoading() {
   );
 }
 
-/**
- * 路由表采用 React Router 的数据路由（route objects）。
- *
- * 根路由 loader 承担认证职责：它向服务端确认当前会话并返回身份，
- * 每次导航和刷新都会重新执行，因此前端不需要自己缓存登录状态。
- *
- * 已实现页面在代码里显式声明；
- */
 export const router = createBrowserRouter([
   {
     id: 'root',
     path: '/',
-    loader: async () => ({ identity: await fetchIdentity() }),
+    // 变更生效：React Router 默认只在路由匹配变化或参数变化时执行 loader，
+    // 这里让根 loader 在每次导航都重新执行，身份、导航与路由元数据按最新配置更新。
+    shouldRevalidate: () => true,
+    loader: async ({ request }) => {
+      const identity = await fetchIdentity(request.signal);
+      if (!identity) {
+        // 未登录时不请求导航接口，避免其 401 进入错误边界；这里交给守卫跳转登录页。
+        return { identity: null, navigation: [], routes: [] };
+      }
+
+      const { navigation, routes } = await fetchNavigation(request.signal);
+      return { identity, navigation, routes };
+    },
     // 只在首次加载的等待期间渲染，后续导航与重新校验不会替换当前页面。
     HydrateFallback: InitialLoading,
     errorElement: <RootErrorPage />,
     children: [
-      // 根路径没有独立页面，按当前会话落到项目列表（未登录时会被守卫转到登录页）。
-      { index: true, element: <Navigate to="/projects/list" replace /> },
-
       // 公共路由：登录页在登录前后都可访问。
       { path: 'login', element: <LoginPage /> },
 
@@ -54,13 +55,23 @@ export const router = createBrowserRouter([
           </RequireAuth>
         ),
         children: [
-          { path: 'projects/list', element: <ProjectsPage /> },
+          { index: true, element: <HomePage /> },
+          // 固定路由：项目详情与编辑不进入菜单配置，菜单停用不影响它们。
           { path: 'projects/records/:id', element: <ProjectDetailPage /> },
           { path: 'projects/records/:id/edit', element: <ProjectEditPage /> },
+
+          // 固定公共页：路径本身不参与菜单配置。
           { path: '403', element: <ForbiddenPage /> },
-          { path: '*', element: <NotFoundPage /> },
+          { path: '404', element: <NotFoundPage /> },
+
+          // 通配分支承载全部配置页面：按当前路由元数据判定 404 / 403 / 渲染对应页面。
+          { path: '*', element: <ConfiguredPage /> },
         ],
       },
     ],
   },
 ]);
+
+// 变更生效：业务请求收到 403 时同步刷新身份与导航（重新执行根 loader），
+// 入口按最新权限更新，不需要等待用户刷新页面或重新登录。
+setForbiddenHandler(() => void router.revalidate());
